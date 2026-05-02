@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fechamento Diário — Saint Germain</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #ffffff; --bg-secondary: #f5f5f3; --bg-tertiary: #d6d4cc;
+    --text: #1a1a1a; --text-secondary: #6b6b67; --text-tertiary: #9b9b97;
+    --border: rgba(0,0,0,0.12); --border-md: rgba(0,0,0,0.22);
+    --radius-md: 8px; --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a; --bg-secondary: #262624; --bg-tertiary: #2e2e2c;
+      --text: #f0efe8; --text-secondary: #9b9b97; --text-tertiary: #6b6b67;
+      --border: rgba(255,255,255,0.1); --border-md: rgba(255,255,255,0.2);
+    }
+  }
+  body { font-family: -apple-system, 'Segoe UI', sans-serif; background: var(--bg-tertiary); color: var(--text); min-height: 100vh; }
+
+  /* ── HEADER ── */
+  .header-bar {
+    background: #000;
+    padding: 0 32px;
+    display: flex; align-items: center; justify-content: space-between; gap: 24px;
+    flex-wrap: wrap;
+  }
+  .header-left { display: flex; flex-direction: column; padding: 16px 0 0; }
+  .logo-text {
+    font-size: 22px; font-weight: 700; letter-spacing: 0.22em; color: #fff;
+    text-transform: uppercase; font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+  .header-subtitle {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.22em;
+    color: rgba(255,255,255,0.55); text-transform: uppercase;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    padding: 6px 0 16px; border-top: 0.5px solid rgba(255,255,255,0.15); margin-top: 8px;
+  }
+  .header-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 18px 0; }
+  .ctrl-label { font-size: 12px; color: rgba(255,255,255,0.55); }
+  input[type=date] {
+    font-size: 13px; padding: 7px 11px; border-radius: var(--radius-md);
+    border: 0.5px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08);
+    color: #fff; cursor: pointer; outline: none;
+  }
+  input[type=date]:focus { border-color: rgba(255,255,255,0.6); }
+  input[type=date]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
+  .btn {
+    font-size: 13px; padding: 7px 15px; border-radius: var(--radius-md);
+    border: 0.5px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08);
+    color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.15s;
+  }
+  .btn:hover { background: rgba(255,255,255,0.15); }
+  .btn.spinning .icon { display: inline-block; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── PAGE ── */
+  .page { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
+  .status-bar { font-size: 12px; color: var(--text-tertiary); margin-bottom: 1rem; display: flex; align-items: center; gap: 6px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #1D9E75; flex-shrink: 0; }
+  .status-dot.loading { background: #BA7517; animation: pulse 1s infinite; }
+  .status-dot.error { background: #E24B4A; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── GRID & CARDS ── */
+  .grids { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 680px) { .grids { grid-template-columns: 1fr; } }
+  .card { background: var(--bg); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 1rem; }
+  .card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .sup-badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-md); }
+  .badge-blue  { background: #E6F1FB; color: #0C447C; }
+  .badge-teal  { background: #E1F5EE; color: #085041; }
+  .badge-amber { background: #FAEEDA; color: #633806; }
+  .badge-pink  { background: #FBEAF0; color: #72243E; }
+  .card-name { font-size: 14px; font-weight: 500; color: var(--text); }
+  .chart-wrap { position: relative; width: 100%; }
+
+  /* ── TABLE ── */
+  .summary-table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
+  .summary-table thead tr { border-bottom: 0.5px solid var(--border-md); }
+  .summary-table thead th { text-align: left; padding: 4px 8px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+  .summary-table thead th:last-child { text-align: right; }
+  .summary-table tbody tr { border-bottom: 0.5px solid var(--border); }
+  .summary-table tbody td { padding: 4px 8px; color: var(--text); }
+  .summary-table tbody td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .row-group-header td { padding: 7px 8px 2px; font-size: 10px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg-secondary); border-bottom: none !important; }
+  .row-subtotal td { font-weight: 600; background: var(--bg-secondary); border-top: 0.5px solid var(--border-md) !important; }
+  .row-isolated td { color: var(--text-secondary); font-style: italic; }
+  .summary-table tfoot tr { border-top: 1px solid var(--border-md); }
+  .summary-table tfoot td { padding: 6px 8px; font-weight: 600; color: var(--text); }
+  .summary-table tfoot td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ── SKELETON & STATES ── */
+  .skeleton { background: var(--bg-secondary); border-radius: var(--radius-lg); height: 320px; animation: shimmer 1.4s infinite; }
+  @keyframes shimmer { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .no-data { font-size: 13px; color: var(--text-tertiary); padding: 3rem 0; text-align: center; grid-column: 1/-1; }
+  .footer { text-align: center; font-size: 11px; color: var(--text-tertiary); margin-top: 2rem; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header-bar">
+  <div class="header-left">
+    <span class="logo-text">Saint Germain</span>
+    <span class="header-subtitle">Fechamento diário Supervisão</span>
+  </div>
+  <div class="header-controls">
+    <span class="ctrl-label">Data:</span>
+    <input type="date" id="date-filter">
+    <button class="btn" id="btn-refresh"><span class="icon">↻</span> Atualizar</button>
+  </div>
+</div>
+
+<div class="page">
+  <div class="status-bar">
+    <span class="status-dot loading" id="status-dot"></span>
+    <span id="status-text">Buscando dados da planilha...</span>
+  </div>
+  <div class="grids" id="grids">
+    <div class="skeleton"></div><div class="skeleton"></div>
+    <div class="skeleton"></div><div class="skeleton"></div>
+  </div>
+  <div class="footer">Dados atualizados automaticamente via Google Forms / Sheets</div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONFIGURAÇÃO
+// ─────────────────────────────────────────────
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR_QrkVvQYd0EPvdSZVPhOGCYDfHW3RDGPFUQnZqiB21g2f9f73RJyz7c-5OFcaxSSFMC-xpoVTfVXo/pub?output=csv';
+
+// Intervalo de auto-atualização em milissegundos (padrão: 5 minutos)
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
+
+const SUPERVISORS = [
+  { match:'LUCAS - MARKETPLACE',   key:'LUCAS',    fullName:'Lucas — Marketplace',   badge:'badge-blue',  color:'#378ADD', colLabel:'Marketplaces',   mode:'lucas'    },
+  { match:'VITORIA - COMERCIAL',   key:'VITORIA',  fullName:'Vitória — Comercial',   badge:'badge-teal',  color:'#1D9E75', colLabel:'Comercial',      mode:'vitoria'  },
+  { match:'RICARDO - SITE',        key:'RICARDO',  fullName:'Ricardo — Site',        badge:'badge-amber', color:'#BA7517', colLabel:'Transportadoras', mode:'ricardo'  },
+  { match:'GABRIELE - PÓS VENDAS', key:'GABRIELE', fullName:'Gabriele — Pós Vendas', badge:'badge-pink',  color:'#D4537E', colLabel:'Pedidos',         mode:'gabriele' },
+];
+
+const C = {
+  date:'Dia do Fechamento', sup:'SUPERVISOR',
+  shopee:'SHOPEE QTD. PEDIDOS:', magalu:'MAGALU QTD. PEDIDOS:', zattini:'ZATTINI QTD: PEDIDOS:',
+  amazon:'AMAZON QTD. PEDIDOS:', meliSaint:'MELI SAINT QTD. PEDIDOS:', meliFlex:'MELI FLEX QTD. PEDIDOS:',
+  tiktok:'TIKTOK QTD. PEDIDOS:', renner:'RENNER QTD. PEDIDOS:', shein:'SHEIN QTD. PEDIDOS:', dafiti:'DAFITI QTD. PEDIDOS:',
+  correios:'CORREIOS QTD. PEDIDOS:', jadlog:'JADLOG QTD:PEDIDOS:', loggi:'LOGGI QTD. PEDIDOS:',
+  estoca:'ESTOCA QTD. PEDIDOS:', totalExp:'TOTAL EXPRESS QTD. PEDIDOS:', jt:'J & T QTD. PEDIDOS:',
+  atacadoQtd:'ATACADO CORREIOS QTD. PEDIDOS', atacadoIt:'ATACADO CORREIOS QTD. ITENS:',
+  quiosqueBC:'QUIOSQUE BC:', quiosqueJV:'QUIOSQUE JOINVILLE:', quiosqueBN:'QUIOSQUE BLUMENAU:',
+  quiosqueSP:'QUIOSQUE SP:', embaixad:'EMBAIXADORES:', extras:'EXTRAS:', influs:'INFLUS:',
+  reenvCorr:'REENVIOS CORREIOS:', reenvLoggi:'REENVIOS LOGGI:',
+  persCorr:'PERSONALIZADOS CORREIOS:', persLoggi:'PERSONALIZADOS LOGGI:', persEst:'PERSONALIZADOS ESTOCA:',
+  persTot:'PERSONALIZADOS TOTAL EXP:', persJT:'PERSONALIZADOS J & T:',
+  lentCorr:'LENTES CORREIO:', lentLoggi:'LENTES LOGGI:', lentEst:'LENTES ESTOCA:',
+  lentTot:'LENTES TOTAL EXPRESS:', lentJT:'LENTES J & T:',
+  devCorr:'DEVOLUÇÕES CORREIOS:', devJad:'DEVOLUÇÕES JADLOG:', devLoggi:'DEVOLUÇÕES LOGGI:',
+  devMeli:'DEVOLUÇÕES MELI:', devAli:'DEVOLUÇÕES ALI EXPRESS:', devZattini:'DEVOLUÇÕES ZATTINI:',
+  devEst:'DEVOLUÇÕES ESTOCA:', devShein:'DEVOLUÇÕES SHEIN:', devShopee:'DEVOLUÇÕES SHOPEE:',
+  devRenner:'DEVOLUÇÕES RENNER:', devDafiti:'DEVOLUÇÕES DAFITI:', devAmazon:'DEVOLUÇÕES AMAZON:',
+  devJT:'DEVOLUÇÕES J & T:', devMagalu:'DEVOLUÇÕES MAGALU:', devTiktok:'DEVOLUÇÕES TIKTOK:',
+};
+
+// ─────────────────────────────────────────────
+//  UTILITÁRIOS
+// ─────────────────────────────────────────────
+const charts = {};
+let allRows = [];
+const fmt   = n => Number(n).toLocaleString('pt-BR');
+const gv    = (row, col) => { const x = parseFloat((row[col]||'').toString().replace(',','.')); return isNaN(x) ? 0 : x; };
+const toISO = ds => {
+  if (!ds) return '';
+  ds = ds.trim().split(' ')[0];
+  if (ds.includes('/')) { const [d,m,y] = ds.split('/'); return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }
+  return ds;
+};
+const fmtDate = iso => {
+  if (!iso) return '—';
+  const [y,m,d] = iso.split('-');
+  const mo = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  return `${parseInt(d)} de ${mo[parseInt(m)-1]} de ${y}`;
+};
+
+// ─────────────────────────────────────────────
+//  BUILD DATA
+// ─────────────────────────────────────────────
+function buildData(row, mode) {
+  if (mode === 'lucas') return [
+    {label:'Shopee',     val:gv(row,C.shopee)},   {label:'Magalu',     val:gv(row,C.magalu)},
+    {label:'Zattini',    val:gv(row,C.zattini)},  {label:'Amazon',     val:gv(row,C.amazon)},
+    {label:'Meli Saint', val:gv(row,C.meliSaint)},{label:'Meli Flex',  val:gv(row,C.meliFlex)},
+    {label:'TikTok',     val:gv(row,C.tiktok)},   {label:'Renner',     val:gv(row,C.renner)},
+    {label:'Shein',      val:gv(row,C.shein)},    {label:'Dafiti',     val:gv(row,C.dafiti)},
+  ].filter(i => i.val > 0);
+
+  if (mode === 'vitoria') return {
+    isolated: [
+      {label:'Atacado (qtd)', val:gv(row,C.atacadoQtd)},
+    ].filter(i => i.val > 0),
+    sumable: [
+      {label:'Atacado (itens)', val:gv(row,C.atacadoIt)},
+      {label:'Quiosque BC',     val:gv(row,C.quiosqueBC)},
+      {label:'Quiosque JV',     val:gv(row,C.quiosqueJV)},
+      {label:'Quiosque BNU',    val:gv(row,C.quiosqueBN)},
+      {label:'Quiosque SP',     val:gv(row,C.quiosqueSP)},
+      {label:'Embaixadores',    val:gv(row,C.embaixad)},
+      {label:'Extras',          val:gv(row,C.extras)},
+      {label:'Influs',          val:gv(row,C.influs)},
+    ].filter(i => i.val > 0),
+  };
+
+  if (mode === 'ricardo') return [
+    {label:'Correios',   val:gv(row,C.correios)},
+    {label:'Jadlog',     val:gv(row,C.jadlog)},
+    {label:'Loggi',      val:gv(row,C.loggi)},
+    {label:'Estoca',     val:gv(row,C.estoca)},
+    {label:'Total Exp.', val:gv(row,C.totalExp)},
+    {label:'J & T',      val:gv(row,C.jt)},
+  ].filter(i => i.val > 0);
+
+  if (mode === 'gabriele') return [
+    { name:'Reenvios', items:[
+      {label:'Reenvios Correios', val:gv(row,C.reenvCorr)},
+      {label:'Reenvios Loggi',    val:gv(row,C.reenvLoggi)},
+    ]},
+    { name:'Personalizados', items:[
+      {label:'Pers. Correios',   val:gv(row,C.persCorr)},
+      {label:'Pers. Loggi',      val:gv(row,C.persLoggi)},
+      {label:'Pers. Estoca',     val:gv(row,C.persEst)},
+      {label:'Pers. Total Exp.', val:gv(row,C.persTot)},
+      {label:'Pers. J & T',      val:gv(row,C.persJT)},
+    ]},
+    { name:'Lentes', items:[
+      {label:'Lentes Correio',     val:gv(row,C.lentCorr)},
+      {label:'Lentes Loggi',       val:gv(row,C.lentLoggi)},
+      {label:'Lentes Estoca',      val:gv(row,C.lentEst)},
+      {label:'Lentes Total Exp.',  val:gv(row,C.lentTot)},
+      {label:'Lentes J & T',       val:gv(row,C.lentJT)},
+    ]},
+    { name:'Devoluções', items:[
+      {label:'Devol. Correios', val:gv(row,C.devCorr)},  {label:'Devol. Jadlog',   val:gv(row,C.devJad)},
+      {label:'Devol. Loggi',    val:gv(row,C.devLoggi)}, {label:'Devol. Meli',     val:gv(row,C.devMeli)},
+      {label:'Devol. Ali Exp.', val:gv(row,C.devAli)},   {label:'Devol. Zattini',  val:gv(row,C.devZattini)},
+      {label:'Devol. Estoca',   val:gv(row,C.devEst)},   {label:'Devol. Shein',    val:gv(row,C.devShein)},
+      {label:'Devol. Shopee',   val:gv(row,C.devShopee)},{label:'Devol. Renner',   val:gv(row,C.devRenner)},
+      {label:'Devol. Dafiti',   val:gv(row,C.devDafiti)},{label:'Devol. Amazon',   val:gv(row,C.devAmazon)},
+      {label:'Devol. J & T',    val:gv(row,C.devJT)},   {label:'Devol. Magalu',   val:gv(row,C.devMagalu)},
+      {label:'Devol. TikTok',   val:gv(row,C.devTiktok)},
+    ]},
+  ].map(grp => ({...grp, items: grp.items.filter(i => i.val > 0)})).filter(grp => grp.items.length > 0);
+}
+
+function flatItems(mode, data) {
+  if (mode === 'vitoria')  return [...data.isolated, ...data.sumable];
+  if (mode === 'gabriele') return data.flatMap(g => g.items);
+  return data;
+}
+
+// ─────────────────────────────────────────────
+//  BUILD TABLE HTML
+// ─────────────────────────────────────────────
+function buildTable(mode, colLabel, data) {
+  if (mode === 'lucas' || mode === 'ricardo') {
+    const tot = data.reduce((s,i) => s+i.val, 0);
+    return `<table class="summary-table"><thead><tr><th>${colLabel}</th><th>Qtd.</th></tr></thead>
+      <tbody>${data.map(i=>`<tr><td>${i.label}</td><td>${fmt(i.val)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td>Total</td><td>${fmt(tot)}</td></tr></tfoot></table>`;
+  }
+  if (mode === 'vitoria') {
+    const tot = data.sumable.reduce((s,i) => s+i.val, 0);
+    const iR  = data.isolated.map(i=>`<tr class="row-isolated"><td>${i.label} <span style="font-size:10px;opacity:0.6">(informativo)</span></td><td>${fmt(i.val)}</td></tr>`).join('');
+    const sR  = data.sumable.map(i=>`<tr><td>${i.label}</td><td>${fmt(i.val)}</td></tr>`).join('');
+    return `<table class="summary-table"><thead><tr><th>${colLabel}</th><th>Qtd.</th></tr></thead>
+      <tbody>${iR}${sR}</tbody><tfoot><tr><td>Total</td><td>${fmt(tot)}</td></tr></tfoot></table>`;
+  }
+  if (mode === 'gabriele') {
+    let rows = '', grand = 0;
+    data.forEach(grp => {
+      const sub = grp.items.reduce((s,i) => s+i.val, 0); grand += sub;
+      rows += `<tr class="row-group-header"><td colspan="2">${grp.name}</td></tr>`;
+      rows += grp.items.map(i=>`<tr><td style="padding-left:16px">${i.label}</td><td>${fmt(i.val)}</td></tr>`).join('');
+      rows += `<tr class="row-subtotal"><td>Total ${grp.name}</td><td>${fmt(sub)}</td></tr>`;
+    });
+    return `<table class="summary-table"><thead><tr><th>${colLabel}</th><th>Qtd.</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td>Total Geral</td><td>${fmt(grand)}</td></tr></tfoot></table>`;
+  }
+}
+
+// ─────────────────────────────────────────────
+//  DRAW CHART
+// ─────────────────────────────────────────────
+function drawChart(idx, items, sup) {
+  const ctx = document.getElementById('chart-' + idx);
+  if (!ctx) return;
+  if (charts[idx]) charts[idx].destroy();
+  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const tick   = isDark ? '#9b9b97' : '#888780';
+  charts[idx] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: items.map(i => i.label),
+      datasets: [{ label: sup.colLabel, data: items.map(i => i.val),
+        backgroundColor: sup.color + '28', borderColor: sup.color, borderWidth: 1.5, borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmt(c.raw) } } },
+      scales: {
+        x: { ticks: { font: { size: 10 }, color: tick, callback: v => fmt(v) }, grid: { color: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(136,135,128,0.12)' } },
+        y: { ticks: { font: { size: 10 }, color: tick, autoSkip: false }, grid: { display: false } }
+      },
+      animation: { onComplete: function() {
+        const ch = this, c2 = ch.ctx;
+        c2.save(); c2.font = '500 10px sans-serif'; c2.fillStyle = sup.color; c2.textAlign = 'left'; c2.textBaseline = 'middle';
+        ch.data.datasets.forEach((ds, di) => {
+          ch.getDatasetMeta(di).data.forEach((bar, bi) => {
+            if (ds.data[bi] > 0) { const p = bar.getProps(['x','y'], true); c2.fillText(fmt(ds.data[bi]), p.x + 4, p.y); }
+          });
+        });
+        c2.restore();
+      }}
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+//  RENDER DASHBOARD
+// ─────────────────────────────────────────────
+function renderDash(dateISO) {
+  const rows  = allRows.filter(r => toISO(r[C.date]) === dateISO);
+  const grids = document.getElementById('grids');
+  grids.innerHTML = '';
+  if (!rows.length) { grids.innerHTML = '<div class="no-data">Nenhum dado encontrado para esta data.</div>'; return; }
+  SUPERVISORS.forEach((sup, idx) => {
+    const row = rows.find(r => (r[C.sup]||'').trim().toUpperCase() === sup.match);
+    if (!row) return;
+    const data = buildData(row, sup.mode);
+    const ci   = flatItems(sup.mode, data);
+    if (!ci.length) return;
+    const h    = Math.max(100, ci.length * 34);
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="sup-badge ${sup.badge}">${sup.key}</span>
+        <span class="card-name">${sup.fullName}</span>
+      </div>
+      <div class="chart-wrap" style="height:${h}px">
+        <canvas id="chart-${idx}" role="img" aria-label="Gráfico ${sup.fullName}."></canvas>
+      </div>
+      ${buildTable(sup.mode, sup.colLabel, data)}
+    `;
+    grids.appendChild(card);
+    setTimeout(() => drawChart(idx, ci, sup), 60);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  STATUS
+// ─────────────────────────────────────────────
+function setStatus(state, text) {
+  document.getElementById('status-dot').className = 'status-dot' + (state === 'loading' ? ' loading' : state === 'error' ? ' error' : '');
+  document.getElementById('status-text').textContent = text;
+}
+
+// ─────────────────────────────────────────────
+//  LOAD DATA (busca CSV sem cache)
+// ─────────────────────────────────────────────
+function loadData(silent) {
+  if (!silent) {
+    setStatus('loading', 'Buscando dados da planilha...');
+    document.getElementById('btn-refresh').classList.add('spinning');
+  }
+  const url = CSV_URL + '&cachebust=' + Date.now();
+  Papa.parse(url, {
+    download: true, header: true, skipEmptyLines: true,
+    complete(results) {
+      allRows = results.data;
+      const dates = [...new Set(allRows.map(r => toISO(r[C.date])).filter(Boolean))].sort().reverse();
+      const input = document.getElementById('date-filter');
+      const prev  = input.value;
+      input.value = dates.includes(prev) ? prev : (dates[0] || '');
+      renderDash(input.value);
+      setStatus('ok', `Atualizado em ${new Date().toLocaleString('pt-BR')}`);
+      document.getElementById('btn-refresh').classList.remove('spinning');
+    },
+    error() {
+      setStatus('error', 'Erro ao buscar dados. Verifique se a planilha está publicada.');
+      document.getElementById('btn-refresh').classList.remove('spinning');
+      document.getElementById('grids').innerHTML = '<div class="no-data">Não foi possível carregar os dados.</div>';
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+//  EVENTOS & AUTO-REFRESH
+// ─────────────────────────────────────────────
+document.getElementById('date-filter').addEventListener('change', function() {
+  renderDash(this.value);
+});
+document.getElementById('btn-refresh').addEventListener('click', () => loadData(false));
+
+// Carrega ao abrir
+loadData(false);
+
+// Auto-atualiza a cada AUTO_REFRESH_MS sem precisar de interação humana
+setInterval(() => loadData(true), AUTO_REFRESH_MS);
+</script>
+</body>
+</html>
