@@ -664,35 +664,9 @@ function renderCards(filteredRows, gridsId, keyPrefix, emptyMsg) {
 }
 
 // ─────────────────────────────────────────────
-//  PERFORMANCE TIME — dados próprios da aba gid=444472827
+//  PERFORMANCE TIME — aba gid=826135286
 // ─────────────────────────────────────────────
-const PERF_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR_QrkVvQYd0EPvdSZVPhOGCYDfHW3RDGPFUQnZqiB21g2f9f73RJyz7c-5OFcaxSSFMC-xpoVTfVXo/pub?output=csv&gid=444472827';
-
-const PERF_HOURS = [
-  '08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18','18-19','19-20','20-21','21-22'
-];
-const PERF_COLS = [
-  '08 - 09 hrs:','09 - 10 hrs:','10 - 11 hrs:','11 - 12 hrs:','12 - 13 hrs:',
-  '13 - 14 hrs:','14 - 15 hrs:','15 - 16 hrs:','16 - 17 hrs:','17 - 18 hrs:',
-  '18 - 19 hrs:','19 - 20 hrs:','20 - 21 hrs:','21 - 22 hrs:'
-];
-// Aliases alternativos para cada coluna (mesma ordem que PERF_COLS)
-const PERF_COLS_ALIASES = [
-  ['08 - 09 hrs','08-09 hrs','08 as 09 hrs:','08 as 09 hrs'],
-  ['09 - 10 hrs','09-10 hrs','09 as 10 hrs:','09 as 10 hrs','09 AS 10 hrs:'],
-  ['10 - 11 hrs','10-11 hrs','10 as 11 hrs:','10 as 11 hrs'],
-  ['11 - 12 hrs','11-12 hrs','11 as 12 hrs:','11 as 12 hrs'],
-  ['12 - 13 hrs','12-13 hrs','12 as 13 hrs:','12 as 13 hrs'],
-  ['13 - 14 hrs','13-14 hrs','13 as 14 hrs:','13 as 14 hrs'],
-  ['14 - 15 hrs','14-15 hrs','14 as 15 hrs:','14 as 15 hrs'],
-  ['15 - 16 hrs','15-16 hrs','15 as 16 hrs:','15 as 16 hrs'],
-  ['16 - 17 hrs','16-17 hrs','16 as 17 hrs:','16 as 17 hrs'],
-  ['17 - 18 hrs','17-18 hrs','17 as 18 hrs:','17 as 18 hrs'],
-  ['18 - 19 hrs','18-19 hrs','18 as 19 hrs:','18 as 19 hrs'],
-  ['19 - 20 hrs','19-20 hrs','19 as 20 hrs:','19 as 20 hrs'],
-  ['20 - 21 hrs','20-21 hrs','20 as 21 hrs:','20 as 21 hrs'],
-  ['21 - 22 hrs','21-22 hrs','21 as 22 hrs:','21 as 22 hrs'],
-];
+const PERF_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR_QrkVvQYd0EPvdSZVPhOGCYDfHW3RDGPFUQnZqiB21g2f9f73RJyz7c-5OFcaxSSFMC-xpoVTfVXo/pub?output=csv&gid=826135286';
 
 let perfRows = [];
 const perfCharts = {};
@@ -702,123 +676,68 @@ const LINE_COLORS = [
   '#5B8A3C','#A0522D','#5577AA','#C08040'
 ];
 
-// Cache de mapeamento coluna-header construído uma vez por conjunto de linhas
-let _perfColCache = null;
-let _perfColCacheKeys = null;
+// ─── Detecção automática de colunas de hora ───────────────────────────────────
+// Escaneia os headers da planilha e detecta qualquer coluna que contenha dois
+// números de 2 dígitos no intervalo 06-23, interpretando-os como HH_inicio e HH_fim.
+// Exemplos de formatos suportados: "08 - 09 hrs:", "09 as 10:", "10h-11h", "11:00-12:00", "08", etc.
+let _perfHourCols = null; // [{ col: 'nome real', label: '08-09', h: 8 }, ...]
 
-function perfBuildColCache(row) {
-  const rowKeys = Object.keys(row);
-  if (_perfColCacheKeys && JSON.stringify(_perfColCacheKeys) === JSON.stringify(rowKeys)) return;
-  _perfColCacheKeys = rowKeys;
-  _perfColCache = {};
-  rowKeys.forEach(k => {
-    // normaliza: minúsculo, colapsa espaços, remove pontuação exceto hífen
-    const norm = k.toLowerCase().replace(/[^a-z0-9\s\-]/g,'').replace(/\s+/g,' ').trim();
-    _perfColCache[norm] = k;
-  });
-}
+function perfDetectHourCols(rows) {
+  if (!rows.length) return [];
+  const keys = Object.keys(rows[0]);
+  const found = [];
+  const seen = new Set();
 
-function perfNormCol(col) {
-  return col.toLowerCase().replace(/[^a-z0-9\s\-]/g,'').replace(/\s+/g,' ').trim();
-}
+  keys.forEach(k => {
+    // Extrai todos os números de 1-2 dígitos do nome da coluna
+    const nums = k.match(/\b(\d{1,2})\b/g);
+    if (!nums || nums.length < 1) return;
 
-// Pre-build a digits-only key from a column name e.g. "09 - 10 hrs:" → "09-10"
-function _colDigitKey(s) {
-  const nums = s.match(/\d+/g);
-  return nums && nums.length >= 2 ? nums[0] + '-' + nums[1] : '';
-}
-// Build digit-key → actual row key map once per row set
-let _perfDigitMap = null;
-let _perfDigitMapSig = null;
-function _buildDigitMap(row) {
-  const sig = Object.keys(row).join('|');
-  if (_perfDigitMapSig === sig) return;
-  _perfDigitMapSig = sig;
-  _perfDigitMap = {};
-  Object.keys(row).forEach(k => {
-    const dk = _colDigitKey(k);
-    if (dk && !_perfDigitMap[dk]) _perfDigitMap[dk] = k;
-  });
-}
-
-// Cache ultra-flexível: mapeia "HH-HH" (ex: "08-09") → chave real da linha
-let _perfFlexMap = null;
-let _perfFlexSig = null;
-function _buildFlexMap(row) {
-  const sig = Object.keys(row).join('|');
-  if (_perfFlexSig === sig) return;
-  _perfFlexSig = sig;
-  _perfFlexMap = {};
-  Object.keys(row).forEach(k => {
-    // Extrai todos os pares de números 2-dígitos: "08 - 09 hrs:" → "0809", "09 as 10:" → "0910"
-    const nums = k.match(/\b(\d{2})\b/g);
-    if (nums && nums.length >= 2) {
-      const flexKey = nums[0] + nums[1]; // "0809"
-      if (!_perfFlexMap[flexKey]) _perfFlexMap[flexKey] = k;
-    }
-  });
-}
-
-function perfGv(row, col) {
-  // 1. Match exato
-  let raw = row[col];
-  if (raw !== undefined && raw !== null && raw !== '') {
-    const x = parseFloat(raw.toString().replace(',','.'));
-    if (!isNaN(x)) return x;
-  }
-
-  // 2. Match normalizado (remove pontuação)
-  perfBuildColCache(row);
-  const norm = perfNormCol(col);
-  const found = _perfColCache[norm];
-  if (found) raw = row[found];
-  if (raw !== undefined && raw !== null && raw !== '') {
-    const x = parseFloat(raw.toString().replace(',','.'));
-    if (!isNaN(x)) return x;
-  }
-
-  // 3. Match por aliases definidos em PERF_COLS_ALIASES
-  const colIdx = PERF_COLS.indexOf(col);
-  if (colIdx >= 0) {
-    for (const alias of (PERF_COLS_ALIASES[colIdx] || [])) {
-      raw = row[alias];
-      if (raw !== undefined && raw !== null && raw !== '') {
-        const x = parseFloat(raw.toString().replace(',','.'));
-        if (!isNaN(x)) return x;
-      }
-      // também alias normalizado
-      const aliasNorm = perfNormCol(alias);
-      const aliasFound = _perfColCache[aliasNorm];
-      if (aliasFound) raw = row[aliasFound];
-      if (raw !== undefined && raw !== null && raw !== '') {
-        const x = parseFloat(raw.toString().replace(',','.'));
-        if (!isNaN(x)) return x;
+    // Tenta par consecutivo de horas (ex: 08,09 ou 8,9)
+    for (let i = 0; i < nums.length - 1; i++) {
+      const h1 = parseInt(nums[i], 10);
+      const h2 = parseInt(nums[i+1], 10);
+      if (h1 >= 6 && h1 <= 23 && h2 === h1 + 1) {
+        const label = String(h1).padStart(2,'0') + '-' + String(h2).padStart(2,'0');
+        if (!seen.has(label)) {
+          seen.add(label);
+          found.push({ col: k, label, h: h1 });
+        }
+        return;
       }
     }
-  }
 
-  // 4. Match por dígitos: "09-10" corresponde a qualquer coluna com esses dois números
-  _buildDigitMap(row);
-  const dk = _colDigitKey(col);
-  if (dk && _perfDigitMap[dk]) {
-    raw = row[_perfDigitMap[dk]];
-    const x = parseFloat((raw||'').toString().replace(',','.'));
-    if (!isNaN(x)) return x;
-  }
-
-  // 5. Fallback ultra-flexível: mapeia por par de horas sem separador (ex: "0809" → qualquer coluna)
-  _buildFlexMap(row);
-  const colNums = col.match(/\b(\d{2})\b/g);
-  if (colNums && colNums.length >= 2) {
-    const flexKey = colNums[0] + colNums[1];
-    if (_perfFlexMap[flexKey]) {
-      raw = row[_perfFlexMap[flexKey]];
-      const x = parseFloat((raw||'').toString().replace(',','.'));
-      if (!isNaN(x)) return x;
+    // Tenta número único de hora (ex: coluna "08" ou "08h")
+    for (let i = 0; i < nums.length; i++) {
+      const h1 = parseInt(nums[i], 10);
+      if (h1 >= 6 && h1 <= 22) {
+        const h2 = h1 + 1;
+        const label = String(h1).padStart(2,'0') + '-' + String(h2).padStart(2,'0');
+        if (!seen.has(label)) {
+          seen.add(label);
+          found.push({ col: k, label, h: h1 });
+        }
+        return;
+      }
     }
-  }
+  });
 
-  return 0;
+  return found.sort((a, b) => a.h - b.h);
+}
+
+// Retorna as colunas de hora detectadas (cacheia após a primeira chamada)
+function getPerfHourCols() {
+  if (_perfHourCols !== null) return _perfHourCols;
+  _perfHourCols = perfDetectHourCols(perfRows);
+  return _perfHourCols;
+}
+
+// Lê o valor numérico de uma coluna de hora em uma linha
+function perfGvByCol(row, colName) {
+  const raw = row[colName];
+  if (raw === undefined || raw === null || raw === '') return 0;
+  const x = parseFloat(raw.toString().replace(',','.'));
+  return isNaN(x) ? 0 : x;
 }
 
 function perfToISO(ds) {
@@ -874,12 +793,18 @@ function perfFindColKey(rows, ...keywords) {
 }
 
 function buildPerfByLine(rows) {
+  if (!rows.length) return [];
+
+  // Detectar colunas de hora dinamicamente
+  const hourCols = getPerfHourCols();
+  const n = hourCols.length;
+
   const map = {};
-  // Descobrir as chaves reais das colunas LINHA e NOME uma única vez
   const linhaKey = perfFindColKey(rows, 'LINHA DE PRODUÇÃO:', 'linha de produção', 'linha producao', 'linha');
   const nomeKey  = perfFindColKey(rows, 'NOME:', 'NOME', 'nome colaborador', 'colaborador');
 
   console.log('[PERF] linhaKey:', linhaKey, '| nomeKey:', nomeKey);
+  console.log('[PERF] Colunas de hora detectadas:', hourCols.map(c => `"${c.col}" → ${c.label}`));
 
   rows.forEach(r => {
     const rawLinha = linhaKey ? (r[linhaKey]||'') : '';
@@ -888,11 +813,12 @@ function buildPerfByLine(rows) {
 
     const nome = nomeKey ? (r[nomeKey]||'').trim() : '';
 
-    if (!map[linha]) map[linha] = { linha, colaboradores: {}, totals: new Array(14).fill(0) };
+    if (!map[linha]) map[linha] = { linha, colaboradores: {}, totals: new Array(n).fill(0) };
     const key = nome || '(sem nome)';
-    if (!map[linha].colaboradores[key]) map[linha].colaboradores[key] = new Array(14).fill(0);
-    PERF_COLS.forEach((col, i) => {
-      const v = perfGv(r, col);
+    if (!map[linha].colaboradores[key]) map[linha].colaboradores[key] = new Array(n).fill(0);
+
+    hourCols.forEach((hc, i) => {
+      const v = perfGvByCol(r, hc.col);
       map[linha].colaboradores[key][i] += v;
       map[linha].totals[i] += v;
     });
@@ -964,7 +890,8 @@ const perfMetaPlugin = {
 // perfMetaPlugin é usado apenas via plugins: [] local no drawPerfChart, não registrado globalmente
 
 // ── Gráfico comparativo: todas as linhas de produção no mesmo chart ──
-function drawPerfComparativeChart(cKey, allLinesData) {
+function drawPerfComparativeChart(cKey, allLinesData, hourLabels) {
+  const labels = hourLabels || getPerfHourCols().map(c => c.label);
   const ctx = document.getElementById(`perfchart-${cKey}`);
   if (!ctx) return;
   if (perfCharts[cKey]) { perfCharts[cKey].destroy(); delete perfCharts[cKey]; }
@@ -975,7 +902,7 @@ function drawPerfComparativeChart(cKey, allLinesData) {
   const textC  = isDark ? '#f0efe8' : '#1a1a1a';
 
   const datasets = FIXED_LINES.map((linhaName, li) => {
-    const lineData = allLinesData[linhaName] || { totals: new Array(14).fill(0) };
+    const lineData = allLinesData[linhaName] || { totals: new Array(labels.length).fill(0) };
     const color = FIXED_LINE_COLORS[li];
     return {
       label: linhaName,
@@ -989,7 +916,7 @@ function drawPerfComparativeChart(cKey, allLinesData) {
 
   perfCharts[cKey] = new Chart(ctx, {
     type: 'bar',
-    data: { labels: PERF_HOURS, datasets },
+    data: { labels, datasets },
     plugins: [perfMetaPlugin],
     options: {
       _meta: META,
@@ -1024,7 +951,8 @@ function drawPerfComparativeChart(cKey, allLinesData) {
 }
 
 // ── Gráfico individual por linha (colaboradores) ──
-function drawPerfChart(cKey, lineData, lineColor) {
+function drawPerfChart(cKey, lineData, lineColor, hourLabels) {
+  const labels = hourLabels || getPerfHourCols().map(c => c.label);
   const ctx = document.getElementById(`perfchart-${cKey}`);
   if (!ctx) return;
   if (perfCharts[cKey]) { perfCharts[cKey].destroy(); delete perfCharts[cKey]; }
@@ -1063,7 +991,7 @@ function drawPerfChart(cKey, lineData, lineColor) {
 
   perfCharts[cKey] = new Chart(ctx, {
     type: 'bar',
-    data: { labels: PERF_HOURS, datasets },
+    data: { labels, datasets },
     plugins: [perfMetaPlugin],
     options: {
       _meta: META,
@@ -1098,6 +1026,11 @@ function renderPerfGrid(rows, gridId, chartPrefix) {
   const grids = document.getElementById(gridId);
   grids.innerHTML = '';
   destroyPerfCharts(chartPrefix);
+
+  // Reutilizar colunas de hora já detectadas (ou detectar agora se ainda não detectado)
+  const hourCols  = getPerfHourCols();
+  const PERF_HOURS_DYN = hourCols.map(c => c.label); // ['08-09','09-10',...]
+  const n = hourCols.length;
 
   // Mapear dados reais por linha
   const lineMap = {};
@@ -1141,19 +1074,19 @@ function renderPerfGrid(rows, gridId, chartPrefix) {
     </div>
     ${totalGeral === 0 && rows && rows.length > 0 ? (() => {
       const allCols = Object.keys(rows[0]);
-      const hourCols = allCols.filter(k => /\d{1,2}/.test(k) && k.length < 30);
+      const detectedHourCols = getPerfHourCols();
       return `<div style="margin-top:8px;font-size:10px;color:var(--text-tertiary);padding:6px 8px;background:var(--bg-secondary);border-radius:6px;word-break:break-all;border:0.5px dashed var(--border-md)">
-        <strong style="color:var(--text-secondary)">⚠ Diagnóstico — colunas de hora detectadas:</strong><br>${hourCols.join(' | ') || '(nenhuma com padrão numérico)'}
-        <br><strong style="color:var(--text-secondary)">Colunas esperadas pelo sistema:</strong><br>${PERF_COLS.join(' | ')}
+        <strong style="color:var(--text-secondary)">⚠ Colunas de hora detectadas na planilha (${detectedHourCols.length}):</strong><br>${detectedHourCols.length ? detectedHourCols.map(c => c.label + ' → "' + c.col + '"').join(' | ') : 'Nenhuma coluna de hora detectada'}
+        <br><strong style="color:var(--text-secondary)">Todos os cabeçalhos:</strong><br>${allCols.join(' | ')}
       </div>`;
     })() : ''}`;
   grids.appendChild(compCard);
-  setTimeout(() => drawPerfComparativeChart(compKey, lineMap), 60);
+  setTimeout(() => drawPerfComparativeChart(compKey, lineMap, PERF_HOURS_DYN), 60);
 
   // ── Cards individuais: 1 por linha de produção ──
   FIXED_LINES.forEach((linhaName, li) => {
     const lineData = lineMap[linhaName] || {
-      linha: linhaName, colaboradores: {}, totals: new Array(14).fill(0)
+      linha: linhaName, colaboradores: {}, totals: new Array(n).fill(0)
     };
 
     const colaboradores = Object.entries(lineData.colaboradores);
@@ -1214,7 +1147,7 @@ function renderPerfGrid(rows, gridId, chartPrefix) {
 
     setTimeout(() => {
       if (totalLinha > 0) {
-        drawPerfChart(cKey, lineData, lineColor);
+        drawPerfChart(cKey, lineData, lineColor, PERF_HOURS_DYN);
       } else {
         const ctx = document.getElementById(`perfchart-${cKey}`);
         if (!ctx) return;
@@ -1225,8 +1158,8 @@ function renderPerfGrid(rows, gridId, chartPrefix) {
         perfCharts[cKey] = new Chart(ctx, {
           type: 'bar',
           data: {
-            labels: PERF_HOURS,
-            datasets: [{ label: 'Volume (itens)', data: new Array(14).fill(0),
+            labels: PERF_HOURS_DYN.length ? PERF_HOURS_DYN : ['08-09','09-10','...'],
+            datasets: [{ label: 'Volume (itens)', data: new Array(PERF_HOURS_DYN.length || 14).fill(0),
               borderColor: lineColor + '44', backgroundColor: lineColor + '18', borderWidth: 1 }]
           },
           options: {
@@ -1239,17 +1172,16 @@ function renderPerfGrid(rows, gridId, chartPrefix) {
             }
           }
         });
-        // Diagnóstico: mostrar colunas reais para depuração se houver linhas carregadas
+        // Diagnóstico visual quando sem dados
         if (perfRows.length > 0) {
           const diagEl = document.getElementById(`perfchart-${cKey}`)?.closest('.card');
           const existingDiag = diagEl && diagEl.querySelector('.perf-diag');
           if (!existingDiag && diagEl) {
-            const allCols = Object.keys(perfRows[0]);
-            const hourCols = allCols.filter(k => /\d{1,2}/.test(k) && k.length < 30);
+            const detectedHourCols2 = getPerfHourCols();
             const div = document.createElement('div');
             div.className = 'perf-diag';
             div.style.cssText = 'margin-top:6px;font-size:10px;color:var(--text-tertiary);padding:6px 8px;background:var(--bg-secondary);border-radius:6px;word-break:break-all;border:0.5px dashed var(--border-md)';
-            div.innerHTML = `<strong style="color:var(--text-secondary)">⚠ Colunas detectadas na planilha (hora):</strong><br>${hourCols.join(' | ') || '(nenhuma com padrão numérico encontrada)'}`;
+            div.innerHTML = `<strong style="color:var(--text-secondary)">⚠ ${detectedHourCols2.length} colunas de hora detectadas:</strong><br>${detectedHourCols2.map(c => c.label + ':' + c.col).join(' | ') || 'Nenhuma'}`;
             diagEl.appendChild(div);
           }
         }
@@ -1286,6 +1218,7 @@ function loadPerfData(silent) {
     download: true, header: true, skipEmptyLines: true,
     complete(results) {
       perfRows = results.data;
+      _perfHourCols = null; // reset cache de colunas de hora para redetectar
       // Diagnóstico detalhado
       if (perfRows.length > 0) {
         console.log('[PERF] Total de linhas:', perfRows.length);
@@ -1306,15 +1239,11 @@ function loadPerfData(silent) {
         console.log('[PERF] Nomes encontrados:', nomesRaw.slice(0,10));
         // Primeira linha para ver estrutura completa
         console.log('[PERF] Primeira linha de dados:', perfRows[0]);
-        // Checar se as colunas de hora estão sendo lidas
-        const _r0 = perfRows[0];
-        console.log('[PERF] Leitura das colunas de hora (perfGv):', 
-          PERF_COLS.map(c => c + ' → ' + perfGv(_r0, c))
-        );
-        // Mostrar mapa de dígitos construído
-        _buildDigitMap(_r0);
-        console.log('[PERF] Digit map:', JSON.stringify(_perfDigitMap));
+        // Colunas de hora detectadas automaticamente
+        const detectedCols = getPerfHourCols();
+        console.log('[PERF] Colunas de hora detectadas:', detectedCols.map(c => `"${c.col}" → ${c.label}`));
         // Mostrar colunas da planilha que contêm números (candidatas a horas)
+        const _r0 = perfRows[0];
         const _numCols = Object.keys(_r0).filter(k => {
           const v = parseFloat((_r0[k]||'').toString().replace(',','.'));
           return !isNaN(v) && v > 0;
