@@ -851,19 +851,36 @@ const perfMetaPlugin = {
     ctx.save();
     ctx.beginPath();
     ctx.setLineDash([6, 4]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(100,100,100,0.85)';
+    ctx.lineWidth = 2;
     ctx.moveTo(x.left, yMeta);
     ctx.lineTo(x.right, yMeta);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Label "Meta 100"
-    ctx.font = 'bold 10px sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`Meta ${META_VAL}`, x.right - 2, yMeta - 2);
+    // Label "Meta 100" — negrito na ponta direita com fundo destacado
+    const label = `Meta ${META_VAL}`;
+    ctx.font = 'bold 11px sans-serif';
+    const textW = ctx.measureText(label).width;
+    const pad = 5;
+    const boxX = x.right - textW - pad * 2 - 2;
+    const boxY = yMeta - 20;
+    const boxH = 16;
+    const boxW = textW + pad * 2;
+    // Fundo do rótulo
+    ctx.fillStyle = 'rgba(80,80,80,0.85)';
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(boxX, boxY, boxW, boxH, 3);
+    } else {
+      ctx.rect(boxX, boxY, boxW, boxH);
+    }
+    ctx.fill();
+    // Texto
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, boxX + pad, boxY + boxH / 2);
     ctx.restore();
 
     // ── Rótulos sobre as barras ──
@@ -964,7 +981,7 @@ function drawPerfChart(cKey, lineData, lineColor, hourLabels) {
   const colaboradores = Object.entries(lineData.colaboradores);
 
   const datasets = colaboradores.map(([nome, hrs]) => {
-    const bgColors  = hrs.map(v => v >= META ? 'rgba(74,222,128,0.55)'  : v > 0 ? 'rgba(248,113,113,0.55)'  : 'rgba(120,120,120,0.15)');
+    const bgColors  = hrs.map(v => v >= META ? 'rgba(74,222,128,0.82)'  : v > 0 ? 'rgba(248,113,113,0.82)'  : 'rgba(120,120,120,0.15)');
     const brdColors = hrs.map(v => v >= META ? 'rgba(74,222,128,1)'     : v > 0 ? 'rgba(248,113,113,1)'     : 'rgba(120,120,120,0.3)');
     return {
       label: nome,
@@ -977,7 +994,7 @@ function drawPerfChart(cKey, lineData, lineColor, hourLabels) {
   });
 
   if (colaboradores.length > 1) {
-    const bgColors  = lineData.totals.map(v => v >= META ? 'rgba(74,222,128,0.55)'  : v > 0 ? 'rgba(248,113,113,0.55)'  : 'rgba(120,120,120,0.15)');
+    const bgColors  = lineData.totals.map(v => v >= META ? 'rgba(74,222,128,0.82)'  : v > 0 ? 'rgba(248,113,113,0.82)'  : 'rgba(120,120,120,0.15)');
     const brdColors = lineData.totals.map(v => v >= META ? 'rgba(74,222,128,1)'     : v > 0 ? 'rgba(248,113,113,1)'     : 'rgba(120,120,120,0.3)');
     datasets.push({
       label: 'Total linha',
@@ -1106,13 +1123,16 @@ function renderPerfGrid(rows, gridId, chartPrefix) {
     const horasFora    = lineData.totals.filter(v => v > 0 && v < META).length;
     const pctDentro    = horasComDado.length > 0 ? Math.round((horasDentro / horasComDado.length) * 100) : 0;
 
+    // Montar label da linha com nome do colaborador
+    const nomeLabel = nomeColaborador !== '—' ? nomeColaborador : '';
+    const linhaBadgeLabel = nomeLabel ? `${linhaName} — ${nomeLabel}` : linhaName;
+
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
       <div class="card-header" style="justify-content:space-between;align-items:flex-start">
         <div style="display:flex;align-items:center;gap:8px">
-          <span class="sup-badge ${badge}" style="white-space:nowrap">${linhaName}</span>
-          <span class="card-name" style="font-size:13px;color:var(--text-secondary)">${nomeColaborador}</span>
+          <span class="sup-badge ${badge}" style="white-space:nowrap">${linhaBadgeLabel}</span>
         </div>
         ${totalLinha > 0 ? `<span style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${colaboradores.length} colaborador${colaboradores.length!==1?'es':''}</span>` : ''}
       </div>
