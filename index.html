@@ -264,7 +264,9 @@
       </div>
       <button class="btn" id="hc-btn-refresh"><span class="icon">↻</span> Atualizar</button>
       <div class="tab-controls" id="hctrl-hc-tabela" style="align-items:center;gap:8px">
-        <span class="ctrl-label">Tabela interativa</span>
+        <span class="ctrl-label">Data:</span>
+        <input type="date" id="hc-tabela-date-filter">
+        <button class="btn" id="hc-tabela-today-btn" title="Ir para hoje" style="font-size:12px;padding:6px 10px">Hoje</button>
       </div>
     </div>
   </div>
@@ -739,6 +741,24 @@ function _buildDigitMap(row) {
   });
 }
 
+// Cache ultra-flexível: mapeia "HH-HH" (ex: "08-09") → chave real da linha
+let _perfFlexMap = null;
+let _perfFlexSig = null;
+function _buildFlexMap(row) {
+  const sig = Object.keys(row).join('|');
+  if (_perfFlexSig === sig) return;
+  _perfFlexSig = sig;
+  _perfFlexMap = {};
+  Object.keys(row).forEach(k => {
+    // Extrai todos os pares de números 2-dígitos: "08 - 09 hrs:" → "0809", "09 as 10:" → "0910"
+    const nums = k.match(/\b(\d{2})\b/g);
+    if (nums && nums.length >= 2) {
+      const flexKey = nums[0] + nums[1]; // "0809"
+      if (!_perfFlexMap[flexKey]) _perfFlexMap[flexKey] = k;
+    }
+  });
+}
+
 function perfGv(row, col) {
   // 1. Match exato
   let raw = row[col];
@@ -784,6 +804,18 @@ function perfGv(row, col) {
     raw = row[_perfDigitMap[dk]];
     const x = parseFloat((raw||'').toString().replace(',','.'));
     if (!isNaN(x)) return x;
+  }
+
+  // 5. Fallback ultra-flexível: mapeia por par de horas sem separador (ex: "0809" → qualquer coluna)
+  _buildFlexMap(row);
+  const colNums = col.match(/\b(\d{2})\b/g);
+  if (colNums && colNums.length >= 2) {
+    const flexKey = colNums[0] + colNums[1];
+    if (_perfFlexMap[flexKey]) {
+      raw = row[_perfFlexMap[flexKey]];
+      const x = parseFloat((raw||'').toString().replace(',','.'));
+      if (!isNaN(x)) return x;
+    }
   }
 
   return 0;
@@ -1106,7 +1138,15 @@ function renderPerfGrid(rows, gridId, chartPrefix) {
     <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;padding:7px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);border:0.5px solid var(--border)">
       <span style="font-size:10px;color:var(--text-secondary);font-weight:500;text-transform:uppercase;letter-spacing:0.08em">Total geral itens preparados</span>
       <span style="font-size:17px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${fmt(totalGeral)}</span>
-    </div>`;
+    </div>
+    ${totalGeral === 0 && rows && rows.length > 0 ? (() => {
+      const allCols = Object.keys(rows[0]);
+      const hourCols = allCols.filter(k => /\d{1,2}/.test(k) && k.length < 30);
+      return `<div style="margin-top:8px;font-size:10px;color:var(--text-tertiary);padding:6px 8px;background:var(--bg-secondary);border-radius:6px;word-break:break-all;border:0.5px dashed var(--border-md)">
+        <strong style="color:var(--text-secondary)">⚠ Diagnóstico — colunas de hora detectadas:</strong><br>${hourCols.join(' | ') || '(nenhuma com padrão numérico)'}
+        <br><strong style="color:var(--text-secondary)">Colunas esperadas pelo sistema:</strong><br>${PERF_COLS.join(' | ')}
+      </div>`;
+    })() : ''}`;
   grids.appendChild(compCard);
   setTimeout(() => drawPerfComparativeChart(compKey, lineMap), 60);
 
@@ -1199,6 +1239,20 @@ function renderPerfGrid(rows, gridId, chartPrefix) {
             }
           }
         });
+        // Diagnóstico: mostrar colunas reais para depuração se houver linhas carregadas
+        if (perfRows.length > 0) {
+          const diagEl = document.getElementById(`perfchart-${cKey}`)?.closest('.card');
+          const existingDiag = diagEl && diagEl.querySelector('.perf-diag');
+          if (!existingDiag && diagEl) {
+            const allCols = Object.keys(perfRows[0]);
+            const hourCols = allCols.filter(k => /\d{1,2}/.test(k) && k.length < 30);
+            const div = document.createElement('div');
+            div.className = 'perf-diag';
+            div.style.cssText = 'margin-top:6px;font-size:10px;color:var(--text-tertiary);padding:6px 8px;background:var(--bg-secondary);border-radius:6px;word-break:break-all;border:0.5px dashed var(--border-md)';
+            div.innerHTML = `<strong style="color:var(--text-secondary)">⚠ Colunas detectadas na planilha (hora):</strong><br>${hourCols.join(' | ') || '(nenhuma com padrão numérico encontrada)'}`;
+            diagEl.appendChild(div);
+          }
+        }
       }
     }, 80 + li * 20);
   });
@@ -1750,10 +1804,15 @@ function updateTabelaTotals() {
       ${inj > 0 ? `<span class="tot-inj" style="display:block">◆ ${inj}</span>` : ''}`;
   });
 
-  // Totais globais no banner
-  const totalPres = HC_SUPERVISORS.reduce((s, sup) => s + bySup[sup.key].pres, 0);
-  const totalFalt = HC_SUPERVISORS.reduce((s, sup) => s + bySup[sup.key].falta, 0);
-  const totalInj  = HC_SUPERVISORS.reduce((s, sup) => s + bySup[sup.key].inj, 0);
+  // Totais globais no banner — usar o dia selecionado no filtro
+  const tabelaDateInp = document.getElementById('hc-tabela-date-filter');
+  const selectedISO = tabelaDateInp ? tabelaDateInp.value : '';
+  let totalPres = 0, totalFalt = 0, totalInj = 0;
+  if (selectedISO && byDate[selectedISO]) {
+    totalPres = byDate[selectedISO].pres;
+    totalInj  = byDate[selectedISO].inj;
+    totalFalt = byDate[selectedISO].falta - totalInj;
+  }
   const elP = document.getElementById('tab-total-pres');
   const elF = document.getElementById('tab-total-falt');
   const elI = document.getElementById('tab-total-inj');
@@ -1822,7 +1881,18 @@ function renderHcTabela() {
     return;
   }
 
-  // ── Banner de totais gerais ──
+  // ── Sincronizar filtro de data da tabela ──
+  const tabelaDateInp = document.getElementById('hc-tabela-date-filter');
+  const availISOs = dates.map(d => d.iso);
+  if (!tabelaDateInp.value || !availISOs.includes(tabelaDateInp.value)) {
+    const today = new Date().toISOString().slice(0,10);
+    tabelaDateInp.value = availISOs.includes(today)
+      ? today
+      : (availISOs.filter(d => d <= today).sort().reverse()[0] || availISOs[0]);
+  }
+  const selectedDateISO = tabelaDateInp.value;
+
+  // ── Banner de totais gerais — baseado no dia selecionado ──
   const banner = document.createElement('div');
   banner.className = 'presenca-summary-banner';
   const totalFixo = HC_SUPERVISORS.reduce((s, sup) => s + (hcFixoMap[sup.key] || (colabs[sup.key]||[]).length), 0);
@@ -1834,18 +1904,36 @@ function renderHcTabela() {
     </span>` : '';
   }).join('');
 
+  // Calcular totais do dia selecionado
+  let dayTotalPres = 0, dayTotalFalt = 0, dayTotalInj = 0;
+  if (selectedDateISO) {
+    HC_SUPERVISORS.forEach(sup => {
+      (colabs[sup.key] || []).forEach(colab => {
+        const st = tabelaGetStatus(sup.key, colab, selectedDateISO);
+        if (st === 'presente') dayTotalPres++;
+        else if (st === 'falta_inj') { dayTotalFalt++; dayTotalInj++; }
+        else if (st === 'falta') dayTotalFalt++;
+      });
+    });
+  }
+  const [yd, md, dd] = selectedDateISO ? selectedDateISO.split('-') : ['','',''];
+  const dateDisplayBanner = selectedDateISO ? `${dd}/${md}/${yd}` : '';
+
   banner.innerHTML = `
     <div class="pres-total-block">
       <div class="pres-total-label">HC Total</div>
       <div class="pres-total-num">${totalFixo || '—'}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${supBadges}</div>
     </div>
-    <div class="pres-counters">
-      <div class="pres-counter verde"><div class="num" id="tab-total-pres">0</div><div class="lbl">Presentes</div></div>
-      <div class="divider-v"></div>
-      <div class="pres-counter vermelho"><div class="num" id="tab-total-falt">0</div><div class="lbl">Faltantes</div></div>
-      <div class="divider-v"></div>
-      <div class="pres-counter roxo"><div class="num" id="tab-total-inj">0</div><div class="lbl">F. Injust.</div></div>
+    <div style="display:flex;flex-direction:column;justify-content:center;gap:6px;flex:1">
+      ${selectedDateISO ? `<div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.1em">Presença · ${dateDisplayBanner}</div>` : ''}
+      <div class="pres-counters">
+        <div class="pres-counter verde"><div class="num" id="tab-total-pres">${dayTotalPres}</div><div class="lbl">Presentes</div></div>
+        <div class="divider-v"></div>
+        <div class="pres-counter vermelho"><div class="num" id="tab-total-falt">${dayTotalFalt - dayTotalInj}</div><div class="lbl">Faltantes</div></div>
+        <div class="divider-v"></div>
+        <div class="pres-counter roxo"><div class="num" id="tab-total-inj">${dayTotalInj}</div><div class="lbl">F. Injust.</div></div>
+      </div>
     </div>`;
   container.appendChild(banner);
 
@@ -2188,6 +2276,12 @@ document.getElementById('perf-month-filter').addEventListener('change', function
 document.getElementById('hc-date-filter').addEventListener('change',  function() { renderHcDiario(this.value); });
 document.getElementById('hc-week-filter').addEventListener('change',  function() { if (this.value) renderHcSemanal(this.value); });
 document.getElementById('hc-month-filter').addEventListener('change', function() { if (this.value) renderHcMensal(this.value); });
+document.getElementById('hc-tabela-date-filter').addEventListener('change', function() { renderHcTabela(); });
+document.getElementById('hc-tabela-today-btn').addEventListener('click', function() {
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('hc-tabela-date-filter').value = today;
+  renderHcTabela();
+});
 
 document.getElementById('fech-btn-refresh').addEventListener('click', () => loadData(false));
 document.getElementById('perf-btn-refresh').addEventListener('click', () => loadPerfData(false));
